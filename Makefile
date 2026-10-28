@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install format lint test check pre-commit clean
+.PHONY: help install format lint test check pre-commit clean models
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -29,5 +29,5 @@ clean: ## Remove caches and build artifacts
 	rm -rf .pytest_cache .ruff_cache dist build
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
-model: ## Download and prepare the model
-	uv run python -m src.artifacts --manifest-path configs/models.yaml --artifact-dir models
+models: ## Download and prepare the model
+	uv run python -m face_analyzer.artifacts --manifest-path configs/models.yaml --artifact-dir models

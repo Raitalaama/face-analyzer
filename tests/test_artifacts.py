@@ -4,7 +4,7 @@ import urllib.request
 
 import pytest
 
-import artifacts
+from face_analyzer import artifacts
 
 CONTENT = b"model weights"
 CONTENT_HASH = hashlib.sha256(CONTENT).hexdigest()
@@ -26,6 +26,12 @@ def write_manifest(path, entries):
         lines.extend(f"  {key}: {value}" for key, value in info.items())
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+def test_file_sha256(tmp_path):
+    path = tmp_path / "f"
+    path.write_bytes(CONTENT)
+    assert artifacts.file_sha256(path) == CONTENT_HASH
 
 
 def test_hash_matches(tmp_path):
@@ -70,6 +76,14 @@ def test_safe_download_hash_mismatch_leaves_nothing(tmp_path, source):
     assert list(dest.parent.iterdir()) == []
 
 
+def test_safe_download_hash_mismatch_reports_both_hashes(tmp_path, source):
+    with pytest.raises(ValueError) as exc_info:
+        artifacts.safe_download(source.as_uri(), tmp_path / "model.onnx", "0" * 64)
+    message = str(exc_info.value)
+    assert f"expected {'0' * 64}" in message
+    assert f"got {CONTENT_HASH}" in message
+
+
 def test_safe_download_hash_mismatch_keeps_existing_file(tmp_path, source):
     dest = tmp_path / "model.onnx"
     dest.write_bytes(b"old")
@@ -87,7 +101,7 @@ def test_safe_download_fetch_error_cleans_up_temp_file(tmp_path):
 
 
 def make_artifact(file_path, sha256=CONTENT_HASH):
-    return artifacts.Artifact(name="yunet", url="https://example.com/m.onnx", sha256=sha256, file_path=str(file_path))
+    return artifacts.Artifact(name="yunet", url="https://example.com/m.onnx", sha256=sha256, file_path=file_path)
 
 
 def test_artifact_exists(tmp_path):
@@ -112,7 +126,7 @@ def test_load_manifest(tmp_path):
             name="yunet",
             url="https://example.com/m.onnx",
             sha256=CONTENT_HASH,
-            file_path=str(tmp_path / "models" / "m.onnx"),
+            file_path=tmp_path / "models" / "m.onnx",
         )
     }
 
@@ -206,8 +220,8 @@ def test_main_reads_env_vars(tmp_path, source, monkeypatch):
         tmp_path / "m.yaml", {"yunet": {"url": source.as_uri(), "sha256": CONTENT_HASH, "filename": "model.onnx"}}
     )
     artifact_dir = tmp_path / "models"
-    monkeypatch.setenv("MANIFEST_PATH", str(manifest))
-    monkeypatch.setenv("ARTIFACT_DIR", str(artifact_dir))
+    monkeypatch.setenv("FACE_ANALYZER_MANIFEST_PATH", str(manifest))
+    monkeypatch.setenv("FACE_ANALYZER_ARTIFACT_DIR", str(artifact_dir))
     monkeypatch.setattr("sys.argv", ["artifacts"])
     artifacts.main()
     assert (artifact_dir / "model.onnx").read_bytes() == CONTENT
@@ -218,8 +232,8 @@ def test_main_cli_args_override_env_vars(tmp_path, source, monkeypatch):
         tmp_path / "m.yaml", {"yunet": {"url": source.as_uri(), "sha256": CONTENT_HASH, "filename": "model.onnx"}}
     )
     artifact_dir = tmp_path / "models"
-    monkeypatch.setenv("MANIFEST_PATH", str(tmp_path / "missing.yaml"))
-    monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / "unused"))
+    monkeypatch.setenv("FACE_ANALYZER_MANIFEST_PATH", str(tmp_path / "missing.yaml"))
+    monkeypatch.setenv("FACE_ANALYZER_ARTIFACT_DIR", str(tmp_path / "unused"))
     monkeypatch.setattr(
         "sys.argv", ["artifacts", "--manifest-path", str(manifest), "--artifact-dir", str(artifact_dir)]
     )
@@ -232,14 +246,14 @@ def test_main_cli_args_override_env_vars(tmp_path, source, monkeypatch):
     ("env", "missing"),
     [
         ({}, "--manifest-path, --artifact-dir"),
-        ({"MANIFEST_PATH": "", "ARTIFACT_DIR": ""}, "--manifest-path, --artifact-dir"),
-        ({"MANIFEST_PATH": "m.yaml"}, "--artifact-dir"),
-        ({"ARTIFACT_DIR": "models"}, "--manifest-path"),
+        ({"FACE_ANALYZER_MANIFEST_PATH": "", "FACE_ANALYZER_ARTIFACT_DIR": ""}, "--manifest-path, --artifact-dir"),
+        ({"FACE_ANALYZER_MANIFEST_PATH": "m.yaml"}, "--artifact-dir"),
+        ({"FACE_ANALYZER_ARTIFACT_DIR": "models"}, "--manifest-path"),
     ],
 )
 def test_main_requires_args_without_env_vars(monkeypatch, capsys, env, missing):
-    monkeypatch.delenv("MANIFEST_PATH", raising=False)
-    monkeypatch.delenv("ARTIFACT_DIR", raising=False)
+    monkeypatch.delenv("FACE_ANALYZER_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("FACE_ANALYZER_ARTIFACT_DIR", raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr("sys.argv", ["artifacts"])

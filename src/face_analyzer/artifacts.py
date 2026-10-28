@@ -17,14 +17,18 @@ class Artifact:
     name: str
     url: str
     sha256: str
-    file_path: str
+    file_path: Path
+
+
+def file_sha256(path: str | Path) -> str:
+    """Return the sha256 hash of the file at path."""
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 def hash_matches(path: str | Path, expected_hash: str) -> bool:
     """Check if the file at path has the expected sha256 hash."""
-    with open(path, "rb") as f:
-        digest = hashlib.file_digest(f, "sha256").hexdigest()
-    return digest == expected_hash
+    return file_sha256(path) == expected_hash
 
 
 def safe_download(url: str, dest: str | Path, expected_hash: str, timeout: float = 60) -> Path:
@@ -42,7 +46,7 @@ def safe_download(url: str, dest: str | Path, expected_hash: str, timeout: float
         with os.fdopen(fd, "wb") as f, urllib.request.urlopen(url, timeout=timeout) as resp:
             shutil.copyfileobj(resp, f)
         if not hash_matches(tmp, expected_hash):
-            raise ValueError(f"sha256 mismatch for {url}")
+            raise ValueError(f"sha256 mismatch for {url}, expected {expected_hash}, got {file_sha256(tmp)}")
         # mkstemp creates the file as 0600; make it readable like a normally created file.
         os.chmod(tmp, 0o644)
         os.replace(tmp, dest)
@@ -55,7 +59,7 @@ def safe_download(url: str, dest: str | Path, expected_hash: str, timeout: float
 
 def artifact_exists(artifact: Artifact) -> bool:
     """Check if a file exists at the given path and has the expected hash."""
-    return Path(artifact.file_path).is_file() and hash_matches(artifact.file_path, artifact.sha256)
+    return artifact.file_path.is_file() and hash_matches(artifact.file_path, artifact.sha256)
 
 
 def load_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> dict[str, Artifact]:
@@ -77,9 +81,8 @@ def load_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> dict[s
             name=name,
             url=info["url"],
             sha256=sha256,
-            file_path=str(Path(artifact_dir) / info["filename"]),
+            file_path=Path(artifact_dir) / info["filename"],
         )
-
     return artifacts
 
 
@@ -89,7 +92,7 @@ def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> Non
     for name, artifact in manifest.items():
         url = artifact.url
         expected_hash = artifact.sha256
-        dest_path = Path(artifact.file_path)
+        dest_path = artifact.file_path
         if not artifact_exists(artifact):
             print(f"Downloading {name} from {url} to {dest_path}...")
             safe_download(url, dest_path, expected_hash)
@@ -100,21 +103,21 @@ def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> Non
 def main() -> None:
     """Main function to process the manifest file."""
     parser = argparse.ArgumentParser()
-    manifest_env = os.environ.get("MANIFEST_PATH") or None
-    artifact_dir_env = os.environ.get("ARTIFACT_DIR") or None
+    manifest_env = os.environ.get("FACE_ANALYZER_MANIFEST_PATH") or None
+    artifact_dir_env = os.environ.get("FACE_ANALYZER_ARTIFACT_DIR") or None
     parser.add_argument(
         "--manifest-path",
         type=Path,
         default=manifest_env,
         required=manifest_env is None,
-        help="Path to the manifest YAML file (env: MANIFEST_PATH).",
+        help="Path to the manifest YAML file (env: FACE_ANALYZER_MANIFEST_PATH).",
     )
     parser.add_argument(
         "--artifact-dir",
         type=Path,
         default=artifact_dir_env,
         required=artifact_dir_env is None,
-        help="Directory to store downloaded artifacts (env: ARTIFACT_DIR).",
+        help="Directory to store downloaded artifacts (env: FACE_ANALYZER_ARTIFACT_DIR).",
     )
     args = parser.parse_args()
     process_manifest(args.manifest_path, args.artifact_dir)
