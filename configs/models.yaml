@@ -1,0 +1,4 @@
+yunet:
+  url: https://github.com/opencv/opencv_zoo/blob/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_detection_yunet/face_detection_yunet_2026may.onnx?raw=true
+  sha256: ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
+  filename: face_detection_yunet_2026may.onnx

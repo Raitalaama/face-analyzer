@@ -28,3 +28,6 @@ pre-commit: ## Run all pre-commit hooks on every file
 clean: ## Remove caches and build artifacts
 	rm -rf .pytest_cache .ruff_cache dist build
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+
+model: ## Download and prepare the model
+	uv run python -m src.artifacts --manifest-path configs/models.yaml --artifact-dir models
