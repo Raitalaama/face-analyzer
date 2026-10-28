@@ -29,5 +29,5 @@ clean: ## Remove caches and build artifacts
 	rm -rf .pytest_cache .ruff_cache dist build
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
-models: ## Download and prepare the model
+models: ## Download and prepare models specified in the manifest file
 	uv run python -m face_analyzer.artifacts --manifest-path configs/models.yaml --artifact-dir models

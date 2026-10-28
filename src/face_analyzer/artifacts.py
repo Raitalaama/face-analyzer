@@ -90,12 +90,9 @@ def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> Non
     """Process a manifest file, downloading any missing or outdated files."""
     manifest = load_manifest(manifest_path, artifact_dir)
     for name, artifact in manifest.items():
-        url = artifact.url
-        expected_hash = artifact.sha256
-        dest_path = artifact.file_path
         if not artifact_exists(artifact):
-            print(f"Downloading {name} from {url} to {dest_path}...")
-            safe_download(url, dest_path, expected_hash)
+            print(f"Downloading {name} from {artifact.url} to {artifact.file_path}...")
+            safe_download(artifact.url, artifact.file_path, artifact.sha256)
         else:
             print(f"{name} already exists and matches the expected hash.")
 

@@ -1,7 +1,7 @@
 [project]
 name = "face-analyzer"
 version = "0.1.0"
-description = "Add your description here"
+description = "Face analyzer application"
 readme = "README.md"
 authors = [
     { name = "Risto Kaijaluoto", email = "5791902+Raitalaama@users.noreply.github.com" }
@@ -15,9 +15,6 @@ dependencies = [
     "torch>=2.14.1",
     "torchvision>=0.29.1",
 ]
-
-[project.scripts]
-face-analyzer = "face_analyzer:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
