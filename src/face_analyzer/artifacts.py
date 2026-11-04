@@ -1,3 +1,5 @@
+"""Download and verify model artifacts listed in a YAML manifest."""
+
 import argparse
 import contextlib
 import hashlib
@@ -14,6 +16,15 @@ import yaml
 
 @dataclass(frozen=True)
 class Artifact:
+    """A downloadable file described by a manifest entry.
+
+    Attributes:
+        name: Artifact name, the key of its manifest entry.
+        url: URL the file is downloaded from.
+        sha256: Expected lowercase hex sha256 digest of the file.
+        file_path: Local path where the file is stored.
+    """
+
     name: str
     url: str
     sha256: str
@@ -21,23 +32,51 @@ class Artifact:
 
 
 def file_sha256(path: str | Path) -> str:
-    """Return the sha256 hash of the file at path."""
+    """Compute the sha256 hash of a file.
+
+    Args:
+        path: Path to the file.
+
+    Returns:
+        The lowercase hex sha256 digest of the file contents.
+    """
     with open(path, "rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 def hash_matches(path: str | Path, expected_hash: str) -> bool:
-    """Check if the file at path has the expected sha256 hash."""
+    """Check whether a file has the expected sha256 hash.
+
+    Args:
+        path: Path to the file.
+        expected_hash: Expected lowercase hex sha256 digest.
+
+    Returns:
+        True if the file's digest equals expected_hash.
+    """
     return file_sha256(path) == expected_hash
 
 
 def safe_download(url: str, dest: str | Path, expected_hash: str, timeout: float = 60) -> Path:
-    """Download url to dest, verifying its sha256.
+    """Download a file and verify its sha256 before moving it into place.
 
     The file is written to a temp file in dest's directory and only moved
     into place once the hash matches, so dest never holds a partial or
-    corrupt download. timeout (seconds) applies to connecting and to each
-    read, not to the whole download.
+    corrupt download.
+
+    Args:
+        url: URL to download from.
+        dest: Destination file path. Parent directories are created if missing.
+        expected_hash: Expected lowercase hex sha256 digest of the file.
+        timeout: Seconds allowed for connecting and for each read, not for
+            the whole download.
+
+    Returns:
+        The destination path.
+
+    Raises:
+        ValueError: If the downloaded file's hash does not match expected_hash.
+        urllib.error.URLError: If the download fails.
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -58,12 +97,34 @@ def safe_download(url: str, dest: str | Path, expected_hash: str, timeout: float
 
 
 def artifact_exists(artifact: Artifact) -> bool:
-    """Check if a file exists at the given path and has the expected hash."""
+    """Check whether an artifact's file exists and has the expected hash.
+
+    Args:
+        artifact: The artifact to check.
+
+    Returns:
+        True if artifact.file_path is a file whose sha256 matches artifact.sha256.
+    """
     return artifact.file_path.is_file() and hash_matches(artifact.file_path, artifact.sha256)
 
 
 def load_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> dict[str, Artifact]:
-    """Load a manifest file and return its contents as a dictionary."""
+    """Load and validate a manifest file.
+
+    The manifest is a YAML mapping of artifact names to entries, each with
+    ``url``, ``sha256`` and ``filename`` keys.
+
+    Args:
+        manifest_path: Path to the manifest YAML file.
+        artifact_dir: Directory the artifact filenames are resolved against.
+
+    Returns:
+        A mapping of artifact names to Artifact objects.
+
+    Raises:
+        ValueError: If the manifest is not a non-empty mapping, or an entry is
+            not a mapping, is missing required keys, or has an invalid sha256.
+    """
     artifacts: dict[str, Artifact] = {}
     with open(manifest_path) as f:
         manifest_dict = yaml.safe_load(f)
@@ -87,7 +148,16 @@ def load_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> dict[s
 
 
 def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> None:
-    """Process a manifest file, downloading any missing or outdated files."""
+    """Download any artifacts in a manifest that are missing or outdated.
+
+    Args:
+        manifest_path: Path to the manifest YAML file.
+        artifact_dir: Directory where artifacts are stored.
+
+    Raises:
+        ValueError: If the manifest is invalid or a downloaded file's hash
+            does not match.
+    """
     manifest = load_manifest(manifest_path, artifact_dir)
     for name, artifact in manifest.items():
         if not artifact_exists(artifact):
@@ -98,7 +168,13 @@ def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> Non
 
 
 def main() -> None:
-    """Main function to process the manifest file."""
+    """Download the artifacts listed in a manifest file.
+
+    The manifest path and artifact directory are read from the
+    ``--manifest-path`` and ``--artifact-dir`` command-line options, falling
+    back to the FACE_ANALYZER_MANIFEST_PATH and FACE_ANALYZER_ARTIFACT_DIR
+    environment variables.
+    """
     parser = argparse.ArgumentParser()
     manifest_env = os.environ.get("FACE_ANALYZER_MANIFEST_PATH") or None
     artifact_dir_env = os.environ.get("FACE_ANALYZER_ARTIFACT_DIR") or None
