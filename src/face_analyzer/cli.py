@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 
 from face_analyzer.artifacts import ArtifactStore
-from face_analyzer.detection import FaceDetector
-from face_analyzer.image_io import load_image
+from face_analyzer.detection import FaceDetector, crop_face
+from face_analyzer.image_io import load_image, save_image
 from face_analyzer.visualize import save_faces
 
 
@@ -39,6 +39,9 @@ def _detect(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if args.output is not None:
         save_faces(image, faces, args.output)
         print(f"Saved annotated image to {args.output}")
+        for i, face in enumerate(faces, start=1):
+            crop = crop_face(image, face)
+            save_image(crop, args.output.parent / f"{args.output.stem}_face{i}{args.output.suffix}")
 
 
 def main(argv: list[str] | None = None) -> None:

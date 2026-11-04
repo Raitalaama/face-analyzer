@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from conftest import GROUP_IMAGE
 
-from face_analyzer.detection import Face, FaceDetector
+from face_analyzer.detection import Face, FaceDetector, crop_face
 from face_analyzer.image_io import load_image
 
 
@@ -50,3 +50,63 @@ def test_detect_finds_faces_in_group_photo(face_detector: FaceDetector):
 def test_detect_rejects_non_bgr_images(face_detector: FaceDetector, shape):
     with pytest.raises(ValueError, match="3-channel"):
         face_detector.detect(np.zeros(shape, dtype=np.uint8))
+
+
+def _box_face(x: float, y: float, width: float, height: float) -> Face:
+    return Face.from_row(np.array([x, y, width, height, *([0.0] * 10), 0.9]))
+
+
+def _gradient_image(height: int = 100, width: int = 120) -> np.ndarray:
+    """Image where every pixel is distinct, so crops can be compared exactly."""
+    ys, xs = np.mgrid[:height, :width]
+    return np.dstack([ys, xs, np.full_like(ys, 255)]).astype(np.uint8)
+
+
+def test_crop_face_is_square_and_centered():
+    image = _gradient_image()
+    crop = crop_face(image, _box_face(40, 30, 20, 30), margin_pct=0.0)
+    # Side is the longer box side (30); the 20-wide box is widened by 5 on each side.
+    assert crop.shape == (30, 30, 3)
+    assert np.array_equal(crop, image[30:60, 35:65])
+
+
+def test_crop_face_adds_margin_on_each_side():
+    crop = crop_face(_gradient_image(), _box_face(40, 30, 20, 20), margin_pct=0.25)
+    assert crop.shape == (30, 30, 3)
+
+
+def test_crop_face_pads_outside_image_with_black():
+    image = _gradient_image()
+    crop = crop_face(image, _box_face(-10, -5, 30, 30), margin_pct=0.0)
+    assert crop.shape == (30, 30, 3)
+    assert not crop[:5].any()  # rows above the image
+    assert not crop[:, :10].any()  # columns left of the image
+    assert np.array_equal(crop[5:, 10:], image[:25, :20])
+
+
+def test_crop_face_pads_past_bottom_right_corner():
+    image = _gradient_image()
+    crop = crop_face(image, _box_face(110, 90, 20, 20), margin_pct=0.0)
+    assert crop.shape == (20, 20, 3)
+    assert np.array_equal(crop[:10, :10], image[90:, 110:])
+    assert not crop[10:].any()
+    assert not crop[:, 10:].any()
+
+
+def test_crop_face_does_not_share_memory_with_image():
+    image = _gradient_image()
+    crop = crop_face(image, _box_face(40, 30, 20, 20))
+    assert not np.shares_memory(crop, image)
+
+
+def test_crop_face_rejects_negative_margin():
+    with pytest.raises(ValueError, match="non-negative"):
+        crop_face(_gradient_image(), _box_face(40, 30, 20, 20), margin_pct=-0.1)
+
+
+def test_crop_face_on_detected_faces_is_square(face_detector: FaceDetector):
+    image = load_image(GROUP_IMAGE)
+    for face in face_detector.detect(image):
+        crop = crop_face(image, face)
+        assert crop.shape[0] == crop.shape[1]
+        assert crop.shape[2] == 3
