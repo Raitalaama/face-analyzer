@@ -1,16 +1,9 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
+from conftest import GROUP_IMAGE
 
 from face_analyzer.detection import Face, FaceDetector
 from face_analyzer.image_io import load_image
-
-ROOT = Path(__file__).parents[1]
-MODEL_PATH = ROOT / "models" / "face_detection_yunet_2026may.onnx"
-GROUP_IMAGE = ROOT / "tests" / "data" / "group.jpg"
-
-needs_model = pytest.mark.skipif(not MODEL_PATH.is_file(), reason="model not downloaded, run `make models`")
 
 
 def test_face_from_row_maps_columns():
@@ -36,15 +29,12 @@ def test_face_from_row_rejects_wrong_length():
         Face.from_row(np.zeros(14))
 
 
-@needs_model
-def test_detect_returns_empty_list_for_blank_image():
-    detector = FaceDetector(MODEL_PATH)
-    assert detector.detect(np.zeros((240, 320, 3), dtype=np.uint8)) == []
+def test_detect_returns_empty_list_for_blank_image(face_detector: FaceDetector):
+    assert face_detector.detect(np.zeros((240, 320, 3), dtype=np.uint8)) == []
 
 
-@needs_model
-def test_detect_finds_faces_in_group_photo():
-    faces = FaceDetector(MODEL_PATH).detect(load_image(GROUP_IMAGE))
+def test_detect_finds_faces_in_group_photo(face_detector: FaceDetector):
+    faces = face_detector.detect(load_image(GROUP_IMAGE))
     assert len(faces) == 5
     for face in faces:
         assert face.score >= 0.9
@@ -56,8 +46,7 @@ def test_detect_finds_faces_in_group_photo():
         assert face.right_eye[0] < face.left_eye[0]
 
 
-@needs_model
 @pytest.mark.parametrize("shape", [(50, 50), (50, 50, 1), (50, 50, 4)])
-def test_detect_rejects_non_bgr_images(shape):
+def test_detect_rejects_non_bgr_images(face_detector: FaceDetector, shape):
     with pytest.raises(ValueError, match="3-channel"):
-        FaceDetector(MODEL_PATH).detect(np.zeros(shape, dtype=np.uint8))
+        face_detector.detect(np.zeros(shape, dtype=np.uint8))

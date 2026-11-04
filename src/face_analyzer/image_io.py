@@ -16,11 +16,14 @@ def load_image(image_path: str | Path) -> np.ndarray:
         The loaded image as a NumPy array in uint8 BGR format.
 
     Raises:
-        FileNotFoundError: If the file is missing or cannot be read as an image.
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the file exists but cannot be decoded as an image.
     """
+    if not Path(image_path).is_file():
+        raise FileNotFoundError(f"Image not found at path: {image_path}")
     image = cv2.imread(str(image_path))
     if image is None:
-        raise FileNotFoundError(f"Image not found at path: {image_path}")
+        raise ValueError(f"Could not decode image at path: {image_path}")
     return image
 
 

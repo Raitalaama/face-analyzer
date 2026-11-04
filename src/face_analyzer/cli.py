@@ -74,5 +74,5 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         args.func(args, parser)
-    except (FileNotFoundError, ValueError) as e:
+    except (OSError, ValueError) as e:
         parser.exit(1, f"{parser.prog}: error: {e}\n")
