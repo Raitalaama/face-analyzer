@@ -11,6 +11,6 @@ wheels/
 .env
 
 # ML folders
-data/
-models/
-mlruns/
+/data/
+/models/
+/mlruns/
