@@ -8,8 +8,10 @@ import re
 import shutil
 import tempfile
 import urllib.request
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 import yaml
 
@@ -84,8 +86,9 @@ def safe_download(url: str, dest: str | Path, expected_hash: str, timeout: float
     try:
         with os.fdopen(fd, "wb") as f, urllib.request.urlopen(url, timeout=timeout) as resp:
             shutil.copyfileobj(resp, f)
-        if not hash_matches(tmp, expected_hash):
-            raise ValueError(f"sha256 mismatch for {url}, expected {expected_hash}, got {file_sha256(tmp)}")
+        actual_hash = file_sha256(tmp)
+        if actual_hash != expected_hash:
+            raise ValueError(f"sha256 mismatch for {url}, expected {expected_hash}, got {actual_hash}")
         # mkstemp creates the file as 0600; make it readable like a normally created file.
         os.chmod(tmp, 0o644)
         os.replace(tmp, dest)
@@ -147,6 +150,123 @@ def load_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> dict[s
     return artifacts
 
 
+def ensure_artifact(artifact: Artifact) -> Path:
+    """Ensure that an artifact's file exists and has the expected hash.
+
+    If the file does not exist or its hash does not match, it is downloaded
+    from the artifact's URL.
+
+    Args:
+        artifact: The artifact to ensure.
+
+    Returns:
+        The path to the verified file.
+
+    Raises:
+        ValueError: If the downloaded file's hash does not match.
+        urllib.error.URLError: If the download fails.
+    """
+    if artifact_exists(artifact):
+        print(f"{artifact.name} already exists and matches the expected hash.")
+    else:
+        print(f"Downloading {artifact.name} from {artifact.url} to {artifact.file_path}...")
+        safe_download(artifact.url, artifact.file_path, artifact.sha256)
+    return artifact.file_path
+
+
+class ArtifactStore:
+    """The artifacts of one manifest, looked up and fetched by name.
+
+    Example:
+        store = ArtifactStore.from_manifest("configs/models.yaml", "models")
+        model_path = store.ensure("yunet")
+    """
+
+    def __init__(self, artifacts: Mapping[str, Artifact]) -> None:
+        """Create a store from already loaded artifacts.
+
+        Args:
+            artifacts: Mapping of artifact names to Artifact objects.
+        """
+        self._artifacts = dict(artifacts)
+
+    @classmethod
+    def from_manifest(cls, manifest_path: str | Path, artifact_dir: str | Path) -> Self:
+        """Create a store from a manifest file.
+
+        Args:
+            manifest_path: Path to the manifest YAML file.
+            artifact_dir: Directory where artifacts are stored.
+
+        Returns:
+            A store holding the manifest's artifacts.
+
+        Raises:
+            ValueError: If the manifest is invalid.
+        """
+        return cls(load_manifest(manifest_path, artifact_dir))
+
+    @property
+    def names(self) -> list[str]:
+        """Names of the artifacts in the store, in manifest order."""
+        return list(self._artifacts)
+
+    def __contains__(self, name: object) -> bool:
+        """Check whether an artifact with the given name exists in the store."""
+        return name in self._artifacts
+
+    def __iter__(self) -> Iterator[Artifact]:
+        """Iterate over the artifacts in the store, in manifest order."""
+        return iter(self._artifacts.values())
+
+    def __len__(self) -> int:
+        """Return the number of artifacts in the store."""
+        return len(self._artifacts)
+
+    def get(self, name: str) -> Artifact:
+        """Look up an artifact by name.
+
+        Args:
+            name: Artifact name, the key of its manifest entry.
+
+        Returns:
+            The artifact.
+
+        Raises:
+            KeyError: If no artifact has that name. The message lists the
+                available names.
+        """
+        try:
+            return self._artifacts[name]
+        except KeyError:
+            available = ", ".join(self.names)
+            raise KeyError(f"Unknown artifact {name!r}. Available: {available}") from None
+
+    def ensure(self, name: str) -> Path:
+        """Ensure that an artifact's file exists and is valid, downloading it if needed.
+
+        Args:
+            name: Artifact name, the key of its manifest entry.
+
+        Returns:
+            The path to the verified file.
+
+        Raises:
+            KeyError: If no artifact has that name.
+            ValueError: If the downloaded file's hash does not match.
+            urllib.error.URLError: If the download fails.
+        """
+        return ensure_artifact(self.get(name))
+
+    def ensure_all(self) -> dict[str, Path]:
+        """Ensure every artifact in the store, downloading any that are missing or outdated.
+
+        Returns:
+            A mapping of artifact names to the paths of their verified files.
+        """
+        return {artifact.name: ensure_artifact(artifact) for artifact in self}
+
+
 def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> None:
     """Download any artifacts in a manifest that are missing or outdated.
 
@@ -158,13 +278,7 @@ def process_manifest(manifest_path: str | Path, artifact_dir: str | Path) -> Non
         ValueError: If the manifest is invalid or a downloaded file's hash
             does not match.
     """
-    manifest = load_manifest(manifest_path, artifact_dir)
-    for name, artifact in manifest.items():
-        if not artifact_exists(artifact):
-            print(f"Downloading {name} from {artifact.url} to {artifact.file_path}...")
-            safe_download(artifact.url, artifact.file_path, artifact.sha256)
-        else:
-            print(f"{name} already exists and matches the expected hash.")
+    ArtifactStore.from_manifest(manifest_path, artifact_dir).ensure_all()
 
 
 def main() -> None:
