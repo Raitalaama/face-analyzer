@@ -4,26 +4,29 @@ import argparse
 import os
 from pathlib import Path
 
+import cv2
+
 from face_analyzer.artifacts import ArtifactStore
+from face_analyzer.classification import DEFAULT_MODEL_NAME, DEFAULT_MODEL_REVISION, EmotionClassifier
 from face_analyzer.detection import FaceDetector, crop_face
 from face_analyzer.image_io import load_image, save_image
 from face_analyzer.visualize import save_faces
 
 
 def _resolve_model(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Path:
-    """Look up the model named by --model and make sure its file is available.
+    """Look up the model named by --detection-model and make sure its file is available.
 
     Args:
-        args: Parsed arguments with manifest_path, artifact_dir and model.
+        args: Parsed arguments with manifest_path, artifact_dir and detection_model.
         parser: Parser used to report an unknown model name.
 
     Returns:
         The path to the verified model file.
     """
     store = ArtifactStore.from_manifest(args.manifest_path, args.artifact_dir)
-    if args.model not in store:
-        parser.error(f"unknown model {args.model!r}, available: {', '.join(store.names)}")
-    return store.ensure(args.model)
+    if args.detection_model not in store:
+        parser.error(f"unknown model {args.detection_model!r}, available: {', '.join(store.names)}")
+    return store.ensure(args.detection_model)
 
 
 def _detect(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
@@ -42,6 +45,31 @@ def _detect(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
         for i, face in enumerate(faces, start=1):
             crop = crop_face(image, face)
             save_image(crop, args.output.parent / f"{args.output.stem}_face{i}{args.output.suffix}")
+
+
+def _analyze(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Analyze faces in an image, print them and optionally save an annotated copy."""
+    image = load_image(args.image)
+    model_path = _resolve_model(args, parser)
+    detector = FaceDetector(model_path, confidence_threshold=args.threshold)
+    faces = detector.detect(image)
+    if not faces:
+        print("No faces found.")
+    else:
+        print(f"Found {len(faces)} face(s)")
+    classifier = EmotionClassifier(
+        model_name=args.analyze_model, model_revision=args.analyze_model_revision, device=args.device
+    )
+    face_crops = [crop_face(image, face) for face in faces]
+    emotion_predictions = classifier.predict([cv2.cvtColor(crop, cv2.COLOR_BGR2RGB) for crop in face_crops])
+    if args.output is not None:
+        save_faces(image, faces, args.output, emotion_predictions, emotion_top_k=2)
+        print(f"Saved annotated image to {args.output}")
+    for i, emotion_prediction in enumerate(emotion_predictions, start=1):
+        print(
+            f"Face {i}: {emotion_prediction.emotion} ({emotion_prediction.confidence:.2f}), "
+            f"probabilities: {emotion_prediction}"
+        )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -67,12 +95,34 @@ def main(argv: list[str] | None = None) -> None:
 
     detect = sub.add_parser("detect", help="Detect faces in an image.")
     detect.add_argument("image", type=Path, help="Path to the input image.")
-    detect.add_argument("--model", default="yunet", help="Model name in the manifest (default: %(default)s).")
+    detect.add_argument("--detection-model", default="yunet", help="Model name in the manifest (default: %(default)s).")
     detect.add_argument("--threshold", type=float, default=0.9, help="Minimum detection confidence.")
     detect.add_argument(
         "-o", "--output", type=Path, help="Save a copy of the image with the detected faces drawn on it."
     )
     detect.set_defaults(func=_detect)
+
+    analyze = sub.add_parser("analyze", help="Analyze faces in an image.")
+    analyze.add_argument("image", type=Path, help="Path to the input image.")
+    analyze.add_argument(
+        "--detection-model", default="yunet", help="Model name in the manifest (default: %(default)s)."
+    )
+    analyze.add_argument("--threshold", type=float, default=0.9, help="Minimum detection confidence.")
+    analyze.add_argument(
+        "--analyze-model",
+        default=DEFAULT_MODEL_NAME,
+        help="Face analysis model name (default: %(default)s).",
+    )
+    analyze.add_argument(
+        "--analyze-model-revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Revision of the model to use (default: %(default)s).",
+    )
+    analyze.add_argument("--device", type=str, help="Device to run the analysis on, e.g. 'cpu' or 'cuda:0'.")
+    analyze.add_argument(
+        "-o", "--output", type=Path, help="Save a copy of the image with the detected faces drawn on it."
+    )
+    analyze.set_defaults(func=_analyze)
 
     args = parser.parse_args(argv)
     try:
